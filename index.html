@@ -327,6 +327,84 @@
             color: #1e40af;
         }
 
+        .result-save {
+            margin-top: 24px;
+            padding: 18px 16px;
+            background: #f8fafc;
+            border: 2px solid #e2e8f0;
+            border-radius: 14px;
+            text-align: left;
+            width: 100%;
+            max-width: 420px;
+        }
+
+        .result-save-title {
+            font-size: 16px;
+            font-weight: 700;
+            color: #1f2937;
+            margin-bottom: 6px;
+        }
+
+        .result-save-desc {
+            font-size: 13px;
+            color: #475569;
+            line-height: 1.5;
+            margin-bottom: 12px;
+        }
+
+        .save-row {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .save-input {
+            flex: 1;
+            padding: 11px 12px;
+            border: 2px solid #e2e8f0;
+            border-radius: 10px;
+            font-size: 15px;
+            color: #1f2937;
+            outline: none;
+            min-width: 0;
+        }
+
+        .save-input:focus {
+            border-color: #667eea;
+        }
+
+        .save-input-sm {
+            max-width: 90px;
+        }
+
+        .save-btn {
+            width: 100%;
+            max-width: 100%;
+            margin-bottom: 6px;
+        }
+
+        .save-status {
+            font-size: 13px;
+            margin: 6px 0;
+            color: #1e40af;
+        }
+
+        .save-status.success {
+            color: #166534;
+            font-weight: 600;
+        }
+
+        .save-status.error {
+            color: #991b1b;
+        }
+
+        .privacy-note {
+            font-size: 11px;
+            color: #94a3b8;
+            line-height: 1.5;
+            margin-top: 8px;
+        }
+
         @media (max-height: 600px) {
             .container {
                 max-height: 100vh;
@@ -368,6 +446,18 @@
                     <button class="share-btn" onclick="shareResult()">📱 결과 공유</button>
                     <button class="share-btn" onclick="downloadResult()">💾 결과 저장</button>
                 </div>
+                <div class="result-save">
+                    <div class="result-save-title">⚡️ 의료진에게 결과 전달</div>
+                    <p class="result-save-desc">이름을 입력하시면 점수와 오답 내역이 담당 의료진에게 전달되어, 수술 설명 때 도와드릴 수 있습니다.</p>
+                    <div class="save-row">
+                        <input type="text" id="patientName" class="save-input" placeholder="이름 (예: 홍길동)" autocomplete="name">
+                        <input type="number" id="patientAge" class="save-input save-input-sm" placeholder="나이" min="1" max="120" inputmode="numeric">
+                    </div>
+                    <button class="btn btn-primary save-btn" id="saveBtn" onclick="submitResult()">결과 저장 후 전송</button>
+                    <div class="save-status" id="saveStatus"></div>
+                    <p class="privacy-note">※ 입력하신 이름·나이는 수술 전 교육 확인 목적으로만 사용되며, 담당 의료진만 열람합니다.</p>
+                </div>
+
                 <div class="qr-code">
                     <p style="font-size: 12px; color: #9ca3af; margin-bottom: 10px;">이 퀴즈 공유하기</p>
                     <img id="qrCode" src="" alt="QR Code">
@@ -725,9 +815,102 @@
         let score = 0;
         let answers = new Array(quizData.length).fill(null);
 
+        // ===== 결과 수집 설정 =====
+        // ★ 아래 endpoint를 Apps Script 웹앱 URL로 교체하면 환자 점수가 스프레드시트로 전송됩니다.
+        const CONFIG = {
+            endpoint: "https://script.google.com/macros/s/REPLACE_ME/exec"
+        };
+        const QUIZ_STORAGE_KEY = 'herniaQuizPending';
+        let quizStartTime = Date.now();
+
+        function endpointReady() {
+            return CONFIG.endpoint && CONFIG.endpoint.indexOf('REPLACE_ME') === -1;
+        }
+
+        function saveToLocalQueue(payload) {
+            const q = JSON.parse(localStorage.getItem(QUIZ_STORAGE_KEY) || '[]');
+            q.push(payload);
+            localStorage.setItem(QUIZ_STORAGE_KEY, JSON.stringify(q));
+        }
+
+        function removeFromQueue(payload) {
+            const q = JSON.parse(localStorage.getItem(QUIZ_STORAGE_KEY) || '[]');
+            localStorage.setItem(QUIZ_STORAGE_KEY, JSON.stringify(q.filter(x => x.uid !== payload.uid)));
+        }
+
+        function flushQueue() {
+            if (!endpointReady()) return;
+            const q = JSON.parse(localStorage.getItem(QUIZ_STORAGE_KEY) || '[]');
+            if (!q.length) return;
+            fetch(CONFIG.endpoint, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(q[0]), mode: 'cors' })
+                .then(r => r.json())
+                .then(d => { if (d && d.ok) { removeFromQueue(q[0]); flushQueue(); } })
+                .catch(() => {});
+        }
+
+        function submitResult() {
+            const name = document.getElementById('patientName').value.trim();
+            const age = document.getElementById('patientAge').value.trim();
+            const status = document.getElementById('saveStatus');
+            const btn = document.getElementById('saveBtn');
+            if (!name) {
+                status.textContent = '이름을 입력해주세요.';
+                status.className = 'save-status error';
+                return;
+            }
+            if (!window._quizResult) {
+                status.textContent = '점수를 확인할 수 없습니다. 다시 풀어주세요.';
+                status.className = 'save-status error';
+                return;
+            }
+            const r = window._quizResult;
+            const payload = {
+                uid: Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+                name: name,
+                age: age || '',
+                score: r.score,
+                total: r.total,
+                percent: r.percent,
+                durationSec: r.durationSec,
+                wrongNums: r.wrongNums.join(','),
+                userAgent: navigator.userAgent.slice(0, 150)
+            };
+            if (!endpointReady()) {
+                status.textContent = '서버 설정이 준비 중입니다. 잠시 후 다시 시도해주세요.';
+                status.className = 'save-status error';
+                return;
+            }
+            btn.disabled = true;
+            status.textContent = '전송 중…';
+            status.className = 'save-status';
+            saveToLocalQueue(payload);
+            fetch(CONFIG.endpoint, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload), mode: 'cors' })
+                .then(res => res.json())
+                .then(data => {
+                    if (data && data.ok) {
+                        removeFromQueue(payload);
+                        status.textContent = '✓ 저장 완료! 담당 의료진이 확인합니다.';
+                        status.className = 'save-status success';
+                        btn.textContent = '전송 완료';
+                    } else {
+                        btn.disabled = false;
+                        status.textContent = '전송에 실패했습니다. 다시 시도해주세요.';
+                        status.className = 'save-status error';
+                    }
+                })
+                .catch(() => {
+                    btn.disabled = false;
+                    const q = JSON.parse(localStorage.getItem(QUIZ_STORAGE_KEY) || '[]');
+                    status.textContent = '네트워크 문제로 전송되지 못했습니다. (기기에 ' + q.length + '건이 임시 저장됨 — 다음 퀴즈 접속 시 자동 재전송)';
+                    status.className = 'save-status error';
+                });
+        }
+
+
         function initQuiz() {
             renderQuestions();
             updateProgress();
+            flushQueue();
         }
 
         function renderQuestions() {
@@ -783,10 +966,8 @@
             titleDiv.textContent = isCorrect ? '✅ 정답!' : '❌ 틀렸습니다';
             textDiv.innerHTML = isCorrect ? q.feedback : q.wrongFeedback;
 
-            // 점수 업데이트 (처음 선택할 때만)
-            if (isCorrect) {
-                score++;
-            }
+            // 점수 재계산 (정답 배열 기준 — 답을 바꿔도 정확)
+            score = quizData.reduce((s, q, i) => s + (answers[i] === q.correct ? 1 : 0), 0);
 
             updateProgress();
         }
@@ -845,6 +1026,13 @@
             const percentage = Math.round((score / quizData.length) * 100);
             document.getElementById('scoreCircle').textContent = score;
             document.getElementById('finalScore').textContent = score;
+            window._quizResult = {
+                score: score,
+                total: quizData.length,
+                percent: percentage,
+                wrongNums: quizData.map((q, i) => answers[i] === q.correct ? null : i + 1).filter(v => v !== null),
+                durationSec: Math.round((Date.now() - quizStartTime) / 1000)
+            };
 
             let resultText = '';
             if (percentage >= 90) {

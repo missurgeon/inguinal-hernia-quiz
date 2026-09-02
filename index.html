@@ -818,13 +818,13 @@
         // ===== 결과 수집 설정 =====
         // ★ 아래 endpoint를 Apps Script 웹앱 URL로 교체하면 환자 점수가 스프레드시트로 전송됩니다.
         const CONFIG = {
-            endpoint: "https://script.google.com/macros/s/REPLACE_ME/exec"
+            endpoint: "https://script.google.com/macros/s/AKfycbz-_1ZlNyVKDZ2OBfuS6eyZZ8qinIYQ_zl-C3Y8z_7mLeaS7EPoUdai0DHfRCfvfxbzDg/exec"
         };
         const QUIZ_STORAGE_KEY = 'herniaQuizPending';
         let quizStartTime = Date.now();
 
         function endpointReady() {
-            return CONFIG.endpoint && CONFIG.endpoint.indexOf('REPLACE_ME') === -1;
+            return CONFIG.endpoint && CONFIG.endpoint.indexOf('AKfycbz-_1ZlNyVKDZ2OBfuS6eyZZ8qinIYQ_zl-C3Y8z_7mLeaS7EPoUdai0DHfRCfvfxbzDg') === -1;
         }
 
         function saveToLocalQueue(payload) {
